@@ -3,10 +3,8 @@ import numpy as np
 import pickle
 from collections import Counter
 from sklearn.calibration import calibration_curve, CalibratedClassifierCV
-from sklearn.model_selection import train_test_split, cross_val_predict, KFold
-from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score, roc_curve, precision_recall_curve, classification_report, recall_score, precision_score, f1_score, mean_squared_error
-from sklearn.preprocessing import LabelEncoder
-label_encoder = LabelEncoder()
+from sklearn.model_selection import cross_val_predict
+from sklearn.metrics import accuracy_score, precision_recall_curve, recall_score, precision_score, f1_score, mean_squared_error
 from sklearn.ensemble import RandomForestClassifier
 import matplotlib.pyplot as plt
 
