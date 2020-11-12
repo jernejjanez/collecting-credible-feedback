@@ -1,4 +1,3 @@
-import os
 import pandas as pd
 import numpy as np
 import pickle
@@ -9,7 +8,6 @@ from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score, roc
 from sklearn.preprocessing import LabelEncoder
 label_encoder = LabelEncoder()
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.feature_selection import SelectFromModel, SelectKBest, chi2, RFE
 import matplotlib.pyplot as plt
 
 
@@ -173,21 +171,6 @@ def plot_calibration_curve(probs, test_y):
     plt.show()
 
 
-# Select k best features
-def select_k_best(k, X, y, feature_cols):
-    # Feature extraction
-    test = SelectKBest(score_func=chi2, k=k)
-    fit = test.fit(X, y)
-    # Summarize scores
-    print(fit.scores_)
-
-    X1 = fit.transform(X)
-    features = np.array(feature_cols)[test.get_support()]
-    print(features)
-
-    return X1, features
-
-
 # Calculate TP, FP, FN, TN
 def perf_measure(y_actual, y_hat):
     TP = FP = TN = FN = 0
@@ -257,31 +240,6 @@ def random_forest_classification(dataset_name='cardiovascular-disease-dataset/ca
                                  class_1_percentage=50):
     X, y, feature_cols = load_cvd_dataset(dataset_name, class_0_precentage=class_0_percentage, class_1_precentage=class_1_percentage)
     # X, y, feature_cols = load_generic_dataset(dataset_name, class_0_precentage=class_0_percentage, class_1_precentage=class_1_percentage)
-
-    # X, feature_cols = select_k_best(4, X, y, feature_cols)
-
-    # Split dataset into training set and test set
-    # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3) # 70% training and 30% test
-
-    # Calibrate Random Forest Classifier
-    # clf = RandomForestClassifier(n_estimators=100)
-    # calibrated = CalibratedClassifierCV(clf, method='sigmoid', cv=5)
-    # # Train classifier on training data
-    # calibrated.fit(X, y)
-    # proba_calibrated_both = cross_val_predict(calibrated, X, y, cv=5, method='predict_proba')
-    # proba_calibrated = proba_calibrated_both[:, 1]
-    # calibrated_optimal_threshold_probability, calibrated_best_f_score = calculate_optimal_threshold(y, proba_calibrated)
-    # print('Calibrated model Precision Recall curve best Threshold={:.4f}, F-Score={:.4f}'.format(calibrated_optimal_threshold_probability, calibrated_best_f_score))
-    # predict_calibrated = to_labels(proba_calibrated, calibrated_optimal_threshold_probability)
-    #
-    # # Create a Random Forest Classifier
-    # clf = RandomForestClassifier(n_estimators=100)
-    # # Train classifier on training data
-    # clf.fit(X, y)
-    # proba = cross_val_predict(clf, X, y, cv=5, method='predict_proba')[:, 1]
-    # optimal_threshold_probability, best_f_score = calculate_optimal_threshold(y, proba)
-    # print('Uncalibrated model Precision Recall curve best Threshold={:.4f}, F-Score={:.4f}'.format(optimal_threshold_probability, best_f_score))
-    # predict = to_labels(proba, optimal_threshold_probability)
 
     # Create a Random Forest Classifier
     clf = RandomForestClassifier(n_estimators=100)
@@ -404,9 +362,6 @@ def update_model(model='generated-models/initial_model_class0_50_class1_50.sav',
     X.reset_index(drop=True, inplace=True)
     y.reset_index(drop=True, inplace=True)
 
-    # Split dataset into training set and test set
-    # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3)  # 70% training and 30% test
-
     y_initial = pd.Series.to_numpy(y_initial)
     y_test = pd.Series.to_numpy(y)
     y_comb = np.append(y_initial, y_test)
@@ -420,13 +375,6 @@ def update_model(model='generated-models/initial_model_class0_50_class1_50.sav',
     fscore = (2 * precision * recall) / (precision + recall)
     # locate the index of the largest f score
     ix = np.argmax(fscore)
-    # plt.plot(recall, precision, lw=2)
-    # plt.plot(recall[ix], precision[ix], 'o', label="Optimalen prag verjetnosti")
-    # plt.xlabel("Priklic")
-    # plt.ylabel("Natančnost")
-    # plt.legend(loc="best")
-    # plt.title("Krivulja natančnost-priklic (Test set)")
-    # plt.show()
     print('Test set precision-recall curve Optimal threshold probability={:.4f}, F-Score={:.4f}'.format(thresholds[ix], fscore[ix]))
 
     y_combined_probability = loaded_model.predict_proba(X_combined)[:, 1]
@@ -436,13 +384,6 @@ def update_model(model='generated-models/initial_model_class0_50_class1_50.sav',
     fscore = (2 * precision * recall) / (precision + recall)
     # locate the index of the largest f score
     ix = np.argmax(fscore)
-    # plt.plot(recall, precision, lw=2)
-    # plt.plot(recall[ix], precision[ix], 'o', label="Optimalen prag verjetnosti")
-    # plt.xlabel("Priklic")
-    # plt.ylabel("Natančnost")
-    # plt.legend(loc="best")
-    # plt.title("Krivulja natančnost-priklic (Združen inicialen in test set)")
-    # plt.show()
     print('Combined initial and test set precision-recall curve Optimal threshold probability={:.4f}, F-Score={:.4f}'.format(thresholds[ix], fscore[ix]))
     y_prediction = to_labels(y_probability, thresholds[ix])
     threshold_probability = thresholds[ix]
@@ -536,6 +477,7 @@ def update_model(model='generated-models/initial_model_class0_50_class1_50.sav',
 
         sample_weights_initial = [1] * len(y_initial)
         feedback_sample_weights = sample_weights_initial + sample_weights
+
         # Predict using feedback
         clf = RandomForestClassifier(n_estimators=100)
         calibrated = CalibratedClassifierCV(clf, method='sigmoid', cv=5)
@@ -583,13 +525,9 @@ def update_model(model='generated-models/initial_model_class0_50_class1_50.sav',
 
 if __name__ == '__main__':
     scenarios = [1, 2, 3]
-    # scenarios = [2]
     feedback_types = ['negative', 'positive', 'random', 'good']
-    # feedback_types = ['good']
     class_0_perc = [10, 20, 30, 40, 50, 60, 70, 80, 90]
-    # class_0_perc = [50, 20]
     class_1_perc = [90, 80, 70, 60, 50, 40, 30, 20, 10]
-    # class_1_perc = [50, 80]
     for c_0, c_1 in zip(class_0_perc, class_1_perc):
         print()
         print()
