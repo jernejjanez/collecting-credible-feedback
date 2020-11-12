@@ -2,144 +2,37 @@ import os
 import pandas as pd
 import numpy as np
 import pickle
-import pandas.core.algorithms as algos
-from pandas import Series
-import scipy.stats.stats as stats
+from collections import Counter
 from sklearn.calibration import calibration_curve, CalibratedClassifierCV
-from statsmodels.stats.outliers_influence import variance_inflation_factor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score, classification_report, recall_score, precision_score, f1_score, mean_squared_error
-import statsmodels.api as sm
-import statsmodels as sm
+from sklearn.model_selection import train_test_split, cross_val_predict, KFold
+from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score, roc_curve, precision_recall_curve, classification_report, recall_score, precision_score, f1_score, mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 label_encoder = LabelEncoder()
-# from sklearn_pandas import CategoricalImputer
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor, export_graphviz, _tree # Import Decision Tree Classifier
-from sklearn.neighbors import KNeighborsClassifier
-from io import StringIO
-from IPython.display import Image
-import pydotplus
 from sklearn.feature_selection import SelectFromModel, SelectKBest, chi2, RFE
-from sklearn.datasets import make_regression, make_classification
-from sklearn.linear_model import LinearRegression, LogisticRegression
 import matplotlib.pyplot as plt
-from info_gain import info_gain
 
 
-SIGMA = 0.05
-
-
-def insurance_claim_classifier():
-    df = pd.read_csv('insurance_claims.csv')
-    print(df.info())
-
-    print(df['fraud_reported'].value_counts())
-    df['target'] = df['fraud_reported'].apply(lambda x: 1 if x == 'Y' else 0)
-    print(df['target'].value_counts())
-
-    df = df.drop('fraud_reported', axis=1)
-    df = df.drop('policy_bind_date', axis=1)
-    df = df.drop('insured_zip', axis=1)
-    df = df.drop('incident_date', axis=1)
-    df = df.drop('insured_hobbies', axis=1)
-    df = df.drop('_c39', axis=1)
-    df = df.drop('policy_number', axis=1)
-
-    df = df.replace('?', np.nan)
-    print(df.isna().sum())
-
-    cat_df = df.select_dtypes(include=['object']).copy()
-    print(cat_df.columns)
-    print(cat_df.head())
-
-    cat_df['policy_csl'] = cat_df['policy_csl'].map({'100/300': 1, '250/500': 2.5, '500/1000': 5})
-    cat_df['insured_education_level'] = cat_df['insured_education_level'].map({'JD': 1, 'High School': 2, 'College': 3, 'Masters': 4, 'Associate': 5, 'MD': 6, 'PhD': 7})
-    cat_df['incident_severity'] = cat_df['incident_severity'].map({'Trivial Damage': 1, 'Minor Damage': 2, 'Major Damage': 3, 'Total Loss': 4})
-    cat_df['insured_sex'] = cat_df['insured_sex'].map({'FEMALE': 0, 'MALE': 1})
-    cat_df['property_damage'] = cat_df['property_damage'].map({'NO': 0, 'YES': 1})
-    cat_df['police_report_available'] = cat_df['police_report_available'].map({'NO': 0, 'YES': 1})
-
-
-    cat_df1 = cat_df[['policy_csl', 'insured_education_level', 'incident_severity', 'insured_sex', 'property_damage', 'police_report_available']]
-    cat_df = cat_df.drop(['policy_csl', 'insured_education_level', 'incident_severity', 'insured_sex', 'property_damage', 'police_report_available'], axis=1)
-    for column in cat_df.columns:
-        cat_df[column] = label_encoder.fit_transform(cat_df[column])
-
-
-def load_diabetic_dataset():
-    # load the dataset
-    dataset = pd.read_csv('dataset_diabetes/diabetic_data.csv')
-
-    dataset = dataset.drop('encounter_id', axis=1)
-    dataset = dataset.drop('patient_nbr', axis=1)
-    dataset = dataset.drop('weight', axis=1)
-
-    # summarize the shape of the raw data
-    print(dataset.shape)
-    # count the number of missing values for each column
-    num_missing = (dataset == '?').sum()
-    # report the results
-    print(num_missing)
-    # replace '0' values with 'nan'
-    dataset = dataset.replace('?', np.nan)
-    # count the number of nan values in each column
-    print(dataset.isna().sum())
-    # drop rows with missing values
-    dataset.dropna(inplace=True)
-    # summarize the shape of the data with missing rows removed
-    print(dataset.shape)
-
-    # split dataset in features and target variable
-    feature_cols = dataset.columns
-    X = dataset[feature_cols]  # Features
-    y = dataset.diabetesMed  # Target variable
-
-    return X, y, feature_cols
-
-
-def load_pima_dataset():
-    col_names = ['pregnant', 'glucose', 'bp', 'skin', 'insulin', 'bmi', 'pedigree', 'age', 'label']
-    # load dataset
-    dataset = pd.read_csv("pima-indians-diabetes.csv", header=None, names=col_names)
-
-    # summarize the shape of the raw data
-    print(dataset.shape)
-    # count the number of missing values for each column
-    num_missing = (dataset[['glucose', 'bp', 'skin', 'insulin', 'bmi']] == 0).sum()
-    # report the results
-    print(num_missing)
-    # replace '0' values with 'nan'
-    dataset[['glucose', 'bp', 'skin', 'insulin', 'bmi']] = dataset[['glucose', 'bp', 'skin', 'insulin', 'bmi']].replace(0, np.nan)
-    # count the number of nan values in each column
-    print(dataset.isna().sum())
-    # drop rows with missing values
-    dataset.dropna(inplace=True)
-    # summarize the shape of the data with missing rows removed
-    print(dataset.shape)
-
-    # split dataset in features and target variable
-    feature_cols = ['pregnant', 'glucose', 'bp', 'skin', 'insulin', 'bmi', 'pedigree', 'age']
-    X = dataset[feature_cols]  # Features
-    y = dataset.label  # Target variable
-
-    return X, y, feature_cols
-
-
-def load_cvd_dataset(dataset_name):
+def load_cvd_dataset(dataset_name, class_0_precentage=50, class_1_precentage=50):
     # load dataset
     dataset = pd.read_csv(dataset_name)
 
-    # summarize the shape of the raw data
-    print(dataset.shape)
-    dataset[dataset < 0] = np.nan
-    # drop rows with missing values
-    dataset.dropna(inplace=True)
-    # summarize the shape of the data with missing rows removed
+    np.random.seed(2019)
+    # get desired class distribution of dataset
+    if class_0_precentage > class_1_precentage:
+        class_0 = round(Counter(dataset.cardio)[0])
+        class_1 = round((Counter(dataset.cardio)[0] * class_1_precentage) / class_0_precentage)
+        dataset = dataset.groupby('cardio').apply(lambda x: x.sample(class_0) if x.name == 0 else x.sample(class_1)).reset_index(drop=True)
+    elif class_0_precentage < class_1_precentage:
+        class_0 = round((Counter(dataset.cardio)[1] * class_0_precentage) / class_1_precentage)
+        class_1 = round(Counter(dataset.cardio)[1])
+        dataset = dataset.groupby('cardio').apply(lambda x: x.sample(class_0) if x.name == 0 else x.sample(class_1)).reset_index(drop=True)
+
     print(dataset.shape)
 
     # split dataset in features and target variable
     y = dataset.cardio  # Target variable
+    print(Counter(y))
     dataset = dataset.drop('cardio', axis=1)
     feature_cols = list(dataset.columns)
     X = dataset[feature_cols]  # Features
@@ -147,138 +40,34 @@ def load_cvd_dataset(dataset_name):
     return X, y, feature_cols
 
 
-def evaluate_user():
-    pass
+def load_generic_dataset(dataset_name, class_0_precentage=50, class_1_precentage=50):
+    # load dataset
+    dataset = pd.read_csv(dataset_name)
+
+    np.random.seed(2019)
+    if class_0_precentage > class_1_precentage:
+        class_0 = round(Counter(dataset.target)[0])
+        class_1 = round((Counter(dataset.target)[0] * class_1_precentage) / class_0_precentage)
+        dataset = dataset.groupby('target').apply(lambda x: x.sample(class_0) if x.name == 0 else x.sample(class_1)).reset_index(drop=True)
+    elif class_0_precentage < class_1_precentage:
+        class_0 = round((Counter(dataset.target)[1] * class_0_precentage) / class_1_precentage)
+        class_1 = round(Counter(dataset.target)[1])
+        dataset = dataset.groupby('target').apply(lambda x: x.sample(class_0) if x.name == 0 else x.sample(class_1)).reset_index(drop=True)
+
+    print(dataset.shape)
+
+    # split dataset in features and target variable
+    y = dataset.target  # Target variable
+    print(Counter(y))
+    dataset = dataset.drop('target', axis=1)
+    feature_cols = list(dataset.columns)
+    X = dataset[feature_cols]  # Features
+
+    return X, y, feature_cols
 
 
-def update_model(model='generated-models/initial_model.sav',
-                 dataset_name='cardiovascular-disease-dataset/cardio_train_cleaned_feedback_patients.csv',
-                 upper_threshold_probability=0.75,
-                 lower_threshold_probability=0.25,
-                 threshold_probability=0.5):
-    # load the model from disk
-    loaded_model = pickle.load(open(model, 'rb'))
-
-    X, y, feature_cols = load_cvd_dataset(dataset_name)
-    # Split dataset into training set and test set
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3)  # 70% training and 30% test
-
-    y_train_proba = loaded_model.predict_proba(X_train)[:, 1]
-    y_train_pred = to_labels(y_train_proba, threshold_probability)
-    y_train_pred_baseline = loaded_model.predict(X_train)
-
-    # Model Accuracy, how often is the classifier correct?
-    print("Accuracy:", accuracy_score(y_train, y_train_pred))
-    print("Accuracy baseline:", accuracy_score(y_train, y_train_pred_baseline))
-    print("Precision:", precision_score(y_train, y_train_pred))
-    print("Precision baseline:", precision_score(y_train, y_train_pred_baseline))
-    print("Recall:", recall_score(y_train, y_train_pred))
-    print("Recall baseline:", recall_score(y_train, y_train_pred_baseline))
-    print("F1:", f1_score(y_train, y_train_pred))
-    print("F1 baseline:", f1_score(y_train, y_train_pred_baseline))
-    print("RMSE:", mean_squared_error(y_train, y_train_pred, squared=False))
-    print("RMSE baseline:", mean_squared_error(y_train, y_train_pred_baseline, squared=False))
-
-    sample_weights = []
-    feedback = []
-    expected_feedback = []
-    left_middle_threshold = threshold_probability - ((threshold_probability - lower_threshold_probability) / 2)
-    right_middle_threshold = upper_threshold_probability - ((upper_threshold_probability - threshold_probability) / 2)
-    for prob in y_train_proba:
-        feedback.append(np.random.choice(np.arange(1, 6), p=[0, 0, 0, 0.25, 0.75]))
-        # feedback.append(np.random.choice(np.arange(1, 6), p=[0.2, 0.2, 0.2, 0.2, 0.2]))
-        if lower_threshold_probability <= prob <= upper_threshold_probability:
-            if left_middle_threshold <= prob <= right_middle_threshold:
-                expected_feedback.append(np.arange(1, 6))
-            else:
-                expected_feedback.append(np.arange(3, 6))
-        else:
-            expected_feedback.append(np.arange(5, 6))
-
-    test = [1 if fb in exp_fb else 0 for fb, exp_fb in zip(feedback, expected_feedback)]
-    fig, axes = plt.subplots()
-    axes.hist(test)
-    plt.show()
-
-    y_train_pred_test = [p if fb == 1 else 1 - p for p, fb in zip(y_train_pred, test)]
-    print()
-
-    print("Accuracy feedback:", accuracy_score(y_train, y_train_pred_test))
-    print("Precision feedback:", precision_score(y_train, y_train_pred_test))
-    print("Recall feedback:", recall_score(y_train, y_train_pred_test))
-    print("F1 feedback:", f1_score(y_train, y_train_pred_test))
-    print("RMSE feedback:", mean_squared_error(y_train, y_train_pred_test, squared=False))
-
-
-def random_forest_classification(dataset_name='cardiovascular-disease-dataset/cardio_train_cleaned.csv', model_name='generated-models/initial_model.sav'):
-    X, y, feature_cols = load_cvd_dataset(dataset_name)
-
-    # X, feature_cols = select_k_best(4, X, y, feature_cols)
-
-    # ig = []
-    # iv = []
-    # igr = []
-    # for feature in feature_cols:
-    #     ig.append(info_gain.info_gain(y, X[feature]))
-    #     iv.append(info_gain.intrinsic_value(y, X[feature]))
-    #     igr.append(info_gain.info_gain_ratio(y, X[feature]))
-
-    # Split dataset into training set and test set
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3) # 70% training and 30% test
-
-    # Create Decision Tree classifer object
-    # clf = DecisionTreeClassifier(criterion="entropy", max_depth=3)
-    # Create a Gaussian Classifier
-    clf = RandomForestClassifier(n_estimators=100)
-
-    # uncalibrated predictions
-    y_proba_uncalibrated, clf = uncalibrated_classifier(clf, X_train, X_test, y_train)
-    # calibrated predictions
-    y_proba_calibrated, calibrated_clf = calibrate_classifier(clf, X_train, X_test, y_train)
-
-    # Train Decision Tree Classifer
-    # clf = clf.fit(X_train, y_train)
-    probabilities = {
-        "uncalibrated": y_proba_uncalibrated,
-        "calibrated": y_proba_calibrated
-    }
-
-    diagnose_calibration_curve(probabilities, y_test)
-
-    upper_probability_threshold, lower_probability_threshold = plot_net_benefit(y_test, y_proba_calibrated)
-
-    # Predict the response for test dataset
-    # decision_path = clf.decision_path(X_test)
-    # y_log_proba = clf.predict_log_proba(X_test)
-    # y_proba = clf.predict_proba(X_test)
-    y_proba_calibrated = calibrated_clf.predict_proba(X_test)
-    y_pred = clf.predict(X_test)
-    y_pred_calibrated = calibrated_clf.predict(X_test)
-
-    distribution_of_predictions(y_test, y_pred_calibrated, y_proba_calibrated[:, 0], y_proba_calibrated[:, 1])
-
-    TP, FP, FN, TN = perf_measure(y_test, y_pred_calibrated)
-    probability_threshold = calculate_threshold(TP, FP, FN, TN)
-    print("Calibrated Threshold:", probability_threshold)
-    print("Net benefit:", calculate_net_benefit(TP, FP, FN, TN, probability_threshold))
-
-    # Model Accuracy, how often is the classifier correct?
-    print("Accuracy:", accuracy_score(y_test, y_pred))
-    print("Precision:", precision_score(y_test, y_pred))
-    print("Recall:", recall_score(y_test, y_pred))
-    print("F1:", f1_score(y_test, y_pred))
-    print("RMSE:", mean_squared_error(y_test, y_pred, squared=False))
-
-    print("Calibrated Accuracy:", accuracy_score(y_test, y_pred_calibrated))
-    print("Calibrated Precision:", precision_score(y_test, y_pred_calibrated))
-    print("Calibrated Recall:", recall_score(y_test, y_pred_calibrated))
-    print("Calibrated F1:", f1_score(y_test, y_pred_calibrated))
-    print("Calibrated RMSE:", mean_squared_error(y_test, y_pred_calibrated, squared=False))
-
-    # save the model to disk
-    pickle.dump(calibrated_clf, open(model_name, 'wb'))
-
-    return upper_probability_threshold, probability_threshold, lower_probability_threshold
+def get_percentage(current, total):
+    return current / total * 100
 
 
 # apply threshold to positive probabilities to create labels
@@ -286,12 +75,7 @@ def to_labels(pos_probs, threshold):
     return (pos_probs >= threshold).astype('int')
 
 
-# apply threshold to positive probabilities to create labels
-def to_labels_range(pos_probs, min_thresh, max_thresh):
-    return (np.logical_and(min_thresh <= pos_probs, pos_probs < max_thresh)).astype('int')
-
-
-def distribution_of_predictions(y_test, y_pred_calibrated, y_proba_calibrated_false, y_proba_calibrated_true):
+def plot_distribution_of_predictions(y_test, y_pred_calibrated, y_proba_calibrated_false, y_proba_calibrated_true):
     false_pred = []
     true_pred = []
     thresholds = np.arange(0.6, 1.01, 0.1)
@@ -314,30 +98,24 @@ def distribution_of_predictions(y_test, y_pred_calibrated, y_proba_calibrated_fa
     x = np.arange(len(labels))
     width = 0.4
     fig, ax = plt.subplots(figsize=(8, 4.8))
-    ax.bar(x - width/2, true_pred, width, label='True predictions')
-    ax.bar(x + width/2, false_pred, width, label='False predictions')
-    ax.set_xlabel('Probability range')
-    ax.set_ylabel('Frequency')
+    ax.bar(x - width/2, true_pred, width, label='Pravilna napoved')
+    ax.bar(x + width/2, false_pred, width, label='Napačna napoved')
+    ax.set_xlabel('Razpon verjetnosti')
+    ax.set_ylabel('Relativna frekvenca')
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.legend()
 
-    # width = 0.6
-    # fig, ax1 = plt.subplots(figsize=(7.6, 4.8))
-    # ax1.bar(labels, true_pred, width, label='True predictions')
-    # ax1.bar(labels, false_pred, width, bottom=true_pred, label='False predictions')
-    # ax1.set_xlabel('Probability range')
-    # ax1.set_ylabel('Frequency')
-    # ax1.legend()
-
     plt.show()
 
 
-def plot_net_benefit(y_test, y_proba_calibrated):
+def plot_net_benefit(y_test, y_proba_calibrated, plot=True):
+    sigma = 0.002
+
     net_benefit = []
     net_benefit_all = []
-    thresholds = np.arange(0, 1, 0.001)
-    upper_probability_threshold = lower_probability_threshold = 0
+    thresholds = np.arange(0, 1, 0.01)
+    upper_threshold_probability = lower_threshold_probability = 0
     for thresh in thresholds:
         # evaluate each threshold
         TP, FP, FN, TN = perf_measure(y_test, to_labels(y_proba_calibrated, thresh))
@@ -346,24 +124,29 @@ def plot_net_benefit(y_test, y_proba_calibrated):
         net_benefit.append(prediction_model_net_benefit)
         net_benefit_all.append(all_patients_have_disease_net_benefit)
 
-        if prediction_model_net_benefit > all_patients_have_disease_net_benefit + SIGMA and lower_probability_threshold == 0:
-            lower_probability_threshold = thresh
-        if prediction_model_net_benefit <= 0 + SIGMA and upper_probability_threshold == 0:
-            upper_probability_threshold = thresh
+        if prediction_model_net_benefit > all_patients_have_disease_net_benefit + sigma and lower_threshold_probability == 0:
+            lower_threshold_probability = thresh
+        if prediction_model_net_benefit <= 0 + sigma and upper_threshold_probability == 0:
+            upper_threshold_probability = thresh
 
     nobody_has_disease = np.array([0 for i in range(len(thresholds))])
-    plt.plot(thresholds, nobody_has_disease, label='If we predict that no patients have disease')
-    plt.plot(thresholds, net_benefit_all, label='If we predict that all patients have disease')
-    plt.plot(thresholds, net_benefit, label='Prediction model')
-    plt.xlabel("Threshold probability")
-    plt.ylabel("Net benefit")
-    ylim = max(max(net_benefit), max(net_benefit_all), max(nobody_has_disease)) + 0.1
-    plt.ylim(top=ylim, bottom=-ylim)
-    plt.legend(loc="upper right")
-    plt.grid(True)
-    plt.show()
 
-    return upper_probability_threshold, lower_probability_threshold
+    if plot:
+        plt.plot(thresholds, nobody_has_disease, label='Če predvidevamo, da noben bolnik nima bolezni')
+        plt.plot(thresholds, net_benefit_all, label='Če predvidevamo, da imajo vsi bolniki bolezen')
+        plt.plot(thresholds, net_benefit, label='Klasifikator')
+        plt.xlabel("Prag verjetnosti")
+        plt.ylabel("Korist")
+        ylim = max(max(net_benefit), max(net_benefit_all), max(nobody_has_disease)) + 0.1
+        plt.ylim(top=ylim, bottom=-ylim)
+        plt.axvspan(lower_threshold_probability, upper_threshold_probability, color='red', alpha=0.2, label='Območje nizkega zaupanja')
+        plt.axvspan(upper_threshold_probability, 1, color='lightskyblue', alpha=0.4, label='Območje visokega zaupanja')
+        plt.axvspan(0, lower_threshold_probability, color='lightskyblue', alpha=0.4)
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+    return upper_threshold_probability, lower_threshold_probability
 
 
 def calculate_net_benefit(TP, FP, FN, TN, pt):
@@ -376,41 +159,21 @@ def calculate_net_benefit_all(TP, FP, FN, TN, pt):
     return ((TP + FN) / n) - (((FP + TN) / n) * (pt / (1 - pt)))
 
 
-def calculate_threshold(TP, FP, FN, TN):
-    return (TN - FP) / ((TP - FN) + (TN - FP))
-
-
-# predict uncalibrated probabilities
-def uncalibrated_classifier(model, train_X, test_X, train_y):
-    # fit a model
-    model.fit(train_X, train_y)
-    # predict probabilities
-    return model.predict_proba(test_X)[:, 1], model
-
-
-# predict calibrated probabilities
-def calibrate_classifier(model, train_X, test_X, train_y):
-    # define and fit calibration model
-    calibrated = CalibratedClassifierCV(model, method='sigmoid', cv=5)
-    calibrated.fit(train_X, train_y)
-    # predict probabilities
-    return calibrated.predict_proba(test_X)[:, 1], calibrated
-
-
-def diagnose_calibration_curve(probs, test_y):
+def plot_calibration_curve(probs, test_y):
     # plot perfectly calibrated
-    plt.plot([0, 1], [0, 1], linestyle='--', label="optimal")
+    plt.plot([0, 1], [0, 1], linestyle='--', label="popolnoma kalibriran")
     # reliability diagram
     for prob_name, prob_value in probs.items():
         prob_true, prob_pred = calibration_curve(test_y, prob_value, n_bins=10)
         # plot model reliability
         plt.plot(prob_pred, prob_true, marker='.', label=prob_name)
-    plt.xlabel("Prediction")
-    plt.ylabel("True value")
+    plt.xlabel("Napoved")
+    plt.ylabel("Prava vrednost")
     plt.legend(loc="upper left")
     plt.show()
 
 
+# Select k best features
 def select_k_best(k, X, y, feature_cols):
     # Feature extraction
     test = SelectKBest(score_func=chi2, k=k)
@@ -425,12 +188,11 @@ def select_k_best(k, X, y, feature_cols):
     return X1, features
 
 
+# Calculate TP, FP, FN, TN
 def perf_measure(y_actual, y_hat):
-    TP = 0
-    FP = 0
-    TN = 0
-    FN = 0
-    y_actual = y_actual.to_numpy()
+    TP = FP = TN = FN = 0
+    if type(y_actual) is not np.ndarray:
+        y_actual = y_actual.to_numpy()
 
     for i in range(len(y_hat)):
         if y_actual[i] == y_hat[i] == 1:
@@ -445,52 +207,396 @@ def perf_measure(y_actual, y_hat):
     return TP, FP, FN, TN
 
 
-def tree_to_code(tree, feature_names):
-    tree_ = tree.tree_
-    feature_name = [
-        feature_names[i] if i != _tree.TREE_UNDEFINED else "undefined!"
-        for i in tree_.feature
-    ]
-    print("def tree({}):".format(", ".join(feature_names)))
+def calculate_optimal_threshold(y, proba):
+    # Calculate precision-recall curve
+    precision, recall, thresholds = precision_recall_curve(y, proba)
+    # convert to f score
+    fscore = (2 * precision * recall) / (precision + recall)
+    # locate the index of the largest f score
+    ix = np.argmax(fscore)
 
-    def recurse(node, depth):
-        indent = "    " * depth
-        if tree_.feature[node] != _tree.TREE_UNDEFINED:
-            name = feature_name[node]
-            threshold = tree_.threshold[node]
-            print("{}if feature_names['{}'] <= {}:".format(indent, name, threshold))
-            recurse(tree_.children_left[node], depth + 1)
-            print("{}else: # if {} > {}".format(indent, name, threshold))
-            recurse(tree_.children_right[node], depth + 1)
-        else:
-            target = np.argmax(tree_.value[node])
-            print("{}return {} Class: {}".format(indent, tree_.value[node], target))
-
-    recurse(0, 1)
-
-
-def linear_regression_feature_importance():
-    # define dataset
-    X, y = make_classification(n_samples=1000, n_features=10, n_informative=5, random_state=1)
-    # define the model
-    model = DecisionTreeClassifier()
-    # fit the model
-    model.fit(X, y)
-    # get importance
-    importance = model.feature_importances_
-    # summarize feature importance
-    for i, v in enumerate(importance):
-        print('Feature: %0d, Score: %.5f' % (i, v))
-    # plot feature importance
-    plt.bar([x for x in range(len(importance))], importance)
+    plt.plot(recall, precision, lw=2)
+    plt.xlabel("recall")
+    plt.ylabel("precision")
+    plt.legend(loc="best")
+    plt.title("precision vs. recall curve")
     plt.show()
+
+    return thresholds[ix], fscore[ix]
+
+
+def get_user_score(positive_feedback, high_confidence_examples, same_feedback=False):
+    if same_feedback:
+        return ((positive_feedback / high_confidence_examples) * 100) * 0.5
+    return (positive_feedback / high_confidence_examples) * 100
+
+
+def does_user_give_same_feedback(feedback_occurrences_percentage):
+    for feedback, percentage in feedback_occurrences_percentage.items():
+        if percentage > 95:
+            return True
+    return False
+
+
+def get_current_feedback(current_feedback_type, true_value, prediction):
+    if current_feedback_type is 'positive':
+        return 1
+    elif current_feedback_type is 'negative':
+        return 0
+    elif current_feedback_type is 'random':
+        return np.random.randint(0, 2)
+    elif current_feedback_type is 'good':
+        if true_value == prediction:
+            return 1
+        else:
+            return 0
+
+
+def random_forest_classification(dataset_name='cardiovascular-disease-dataset/cardio_cleaned_train.csv',
+                                 model_name='generated-models/initial_model_class0_50_class1_50.sav', class_0_percentage=50,
+                                 class_1_percentage=50):
+    X, y, feature_cols = load_cvd_dataset(dataset_name, class_0_precentage=class_0_percentage, class_1_precentage=class_1_percentage)
+    # X, y, feature_cols = load_generic_dataset(dataset_name, class_0_precentage=class_0_percentage, class_1_precentage=class_1_percentage)
+
+    # X, feature_cols = select_k_best(4, X, y, feature_cols)
+
+    # Split dataset into training set and test set
+    # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3) # 70% training and 30% test
+
+    # Calibrate Random Forest Classifier
+    # clf = RandomForestClassifier(n_estimators=100)
+    # calibrated = CalibratedClassifierCV(clf, method='sigmoid', cv=5)
+    # # Train classifier on training data
+    # calibrated.fit(X, y)
+    # proba_calibrated_both = cross_val_predict(calibrated, X, y, cv=5, method='predict_proba')
+    # proba_calibrated = proba_calibrated_both[:, 1]
+    # calibrated_optimal_threshold_probability, calibrated_best_f_score = calculate_optimal_threshold(y, proba_calibrated)
+    # print('Calibrated model Precision Recall curve best Threshold={:.4f}, F-Score={:.4f}'.format(calibrated_optimal_threshold_probability, calibrated_best_f_score))
+    # predict_calibrated = to_labels(proba_calibrated, calibrated_optimal_threshold_probability)
+    #
+    # # Create a Random Forest Classifier
+    # clf = RandomForestClassifier(n_estimators=100)
+    # # Train classifier on training data
+    # clf.fit(X, y)
+    # proba = cross_val_predict(clf, X, y, cv=5, method='predict_proba')[:, 1]
+    # optimal_threshold_probability, best_f_score = calculate_optimal_threshold(y, proba)
+    # print('Uncalibrated model Precision Recall curve best Threshold={:.4f}, F-Score={:.4f}'.format(optimal_threshold_probability, best_f_score))
+    # predict = to_labels(proba, optimal_threshold_probability)
+
+    # Create a Random Forest Classifier
+    clf = RandomForestClassifier(n_estimators=100)
+    proba = cross_val_predict(clf, X, y, cv=5, method='predict_proba')[:, 1]
+    # calculate precision-recall curve
+    precision, recall, thresholds = precision_recall_curve(y, proba)
+    # convert to f score
+    fscore = (2 * precision * recall) / (precision + recall)
+    # locate the index of the largest f score
+    ix = np.argmax(fscore)
+    plt.plot(recall, precision, lw=2)
+    plt.plot(recall[ix], precision[ix], 'o', label="Optimalen prag verjetnosti: {:.4f}".format(thresholds[ix]))
+    plt.xlabel("Priklic")
+    plt.ylabel("Natančnost")
+    plt.legend(loc="best")
+    plt.title("Krivulja natančnost-priklic pri {}%:{}% (Nekalibrirana) ".format(class_0_percentage, class_1_percentage))
+    plt.show()
+    print('Uncalibrated model Precision Recall curve best Threshold={:.4f}, F-Score={:.4f}'.format(thresholds[ix], fscore[ix]))
+    predict = to_labels(proba, thresholds[ix])
+
+    # Calibrate Random Forest Classifier
+    calibrated = CalibratedClassifierCV(clf, method='sigmoid', cv=5)
+    calibrated.fit(X, y)
+    proba_calibrated_both = cross_val_predict(calibrated, X, y, cv=5, method='predict_proba')
+    proba_calibrated = proba_calibrated_both[:, 1]
+    # calculate precision-recall curve
+    precision, recall, thresholds = precision_recall_curve(y, proba_calibrated)
+    # convert to f score
+    fscore = (2 * precision * recall) / (precision + recall)
+    # locate the index of the largest f score
+    ix = np.argmax(fscore)
+    plt.plot(recall, precision, lw=2)
+    plt.plot(recall[ix], precision[ix], 'o', label="Optimalen prag verjetnosti: {:.4f}".format(thresholds[ix]))
+    plt.xlabel("Priklic")
+    plt.ylabel("Natančnost")
+    plt.legend(loc="best")
+    plt.title("Krivulja natančnost-priklic pri {}%:{}% (Kalibrirana) ".format(class_0_percentage, class_1_percentage))
+    plt.show()
+    print('Calibrated model Precision Recall curve best Threshold={:.4f}, F-Score={:.4f}'.format(thresholds[ix], fscore[ix]))
+    predict_calibrated = to_labels(proba_calibrated, thresholds[ix])
+    predict_calibrated_default_threshold = to_labels(proba_calibrated, 0.5)
+    calibrated_optimal_threshold_probability = thresholds[ix]
+
+    # Plot calibration curve
+    probabilities = {
+        "nekalibriran": proba,
+        "kalibriran": proba_calibrated
+    }
+    plot_calibration_curve(probabilities, y)
+
+    # Plot net benefit and reliability sections, return upper and lower threshold of low reliability section
+    upper_threshold_probability, lower_threshold_probability = plot_net_benefit(y, proba_calibrated)
+
+    plot_distribution_of_predictions(y, predict_calibrated, proba_calibrated_both[:, 0], proba_calibrated_both[:, 1])
+
+    print("Calibrated model:")
+    print("Accuracy: {:.4f}, Precision [0, 1]: [{:.4f}, {:.4f}], Recall [0, 1]: [{:.4f}, {:.4f}], F1 [0, 1]: [{:.4f}, {:.4f}], RMSE: {:.4f}".format(
+        accuracy_score(y, predict_calibrated),
+        precision_score(y, predict_calibrated, average=None)[0],
+        precision_score(y, predict_calibrated, average=None)[1],
+        recall_score(y, predict_calibrated, average=None)[0],
+        recall_score(y, predict_calibrated, average=None)[1],
+        f1_score(y, predict_calibrated, average=None)[0],
+        f1_score(y, predict_calibrated, average=None)[1],
+        mean_squared_error(y, predict_calibrated, squared=False)))
+
+    print("Calibrated model with default threshold:")
+    print("Accuracy: {:.4f}, Precision [0, 1]: [{:.4f}, {:.4f}], Recall [0, 1]: [{:.4f}, {:.4f}], F1 [0, 1]: [{:.4f}, {:.4f}], RMSE: {:.4f}".format(
+        accuracy_score(y, predict_calibrated_default_threshold),
+        precision_score(y, predict_calibrated_default_threshold, average=None)[0],
+        precision_score(y, predict_calibrated_default_threshold, average=None)[1],
+        recall_score(y, predict_calibrated_default_threshold, average=None)[0],
+        recall_score(y, predict_calibrated_default_threshold, average=None)[1],
+        f1_score(y, predict_calibrated_default_threshold, average=None)[0],
+        f1_score(y, predict_calibrated_default_threshold, average=None)[1],
+        mean_squared_error(y, predict_calibrated_default_threshold, squared=False)))
+
+    print("Uncalibrated model:")
+    print("Accuracy: {:.4f}, Precision [0, 1]: [{:.4f}, {:.4f}], Recall [0, 1]: [{:.4f}, {:.4f}], F1 [0, 1]: [{:.4f}, {:.4f}], RMSE: {:.4f}".format(
+        accuracy_score(y, predict),
+        precision_score(y, predict, average=None)[0],
+        precision_score(y, predict, average=None)[1],
+        recall_score(y, predict, average=None)[0],
+        recall_score(y, predict, average=None)[1],
+        f1_score(y, predict, average=None)[0],
+        f1_score(y, predict, average=None)[1],
+        mean_squared_error(y, predict, squared=False)))
+
+    print()
+
+    # save the model to disk
+    pickle.dump(calibrated, open(model_name, 'wb'))
+
+    return upper_threshold_probability, calibrated_optimal_threshold_probability, lower_threshold_probability
+
+
+def update_model(model='generated-models/initial_model_class0_50_class1_50.sav',
+                 dataset_name='cardiovascular-disease-dataset/cardio_cleaned_test.csv',
+                 feedback_type='good', scenario=1, class_0_percentage=50, class_1_percentage=50):
+
+    print('Scenario: {}, User feedback type: {}'.format(scenario, feedback_type))
+
+    # load the model from disk
+    loaded_model = pickle.load(open(model, 'rb'))
+
+    # Training samples
+    X_initial, y_initial, feature_cols_initial = load_cvd_dataset('cardiovascular-disease-dataset/cardio_cleaned_train.csv', class_0_precentage=class_0_percentage, class_1_precentage=class_1_percentage)
+    # X_initial, y_initial, feature_cols_initial = load_generic_dataset('avila/avila-tr.csv', class_0_precentage=class_0_percentage, class_1_precentage=class_1_percentage)
+
+    # Test samples
+    X, y, feature_cols = load_cvd_dataset(dataset_name, class_0_precentage=class_0_percentage, class_1_precentage=class_1_percentage)
+    # X, y, feature_cols = load_generic_dataset(dataset_name)
+
+    # Validation samples
+    X_validation, y_validation, feature_cols_validation = load_cvd_dataset('cardiovascular-disease-dataset/cardio_cleaned_validation.csv', class_0_precentage=class_0_percentage, class_1_precentage=class_1_percentage)
+    # X_validation, y_validation, feature_cols_validation = load_generic_dataset('avila/avila-vl.csv')
+
+    X_initial.reset_index(drop=True, inplace=True)
+    y_initial.reset_index(drop=True, inplace=True)
+    X.reset_index(drop=True, inplace=True)
+    y.reset_index(drop=True, inplace=True)
+
+    # Split dataset into training set and test set
+    # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3)  # 70% training and 30% test
+
+    y_initial = pd.Series.to_numpy(y_initial)
+    y_test = pd.Series.to_numpy(y)
+    y_comb = np.append(y_initial, y_test)
+    X_combined = pd.concat([X_initial, X])
+    X_combined.reset_index(drop=True, inplace=True)
+
+    y_probability = loaded_model.predict_proba(X)[:, 1]
+    # calculate precision-recall curve
+    precision, recall, thresholds = precision_recall_curve(y, y_probability)
+    # convert to f score
+    fscore = (2 * precision * recall) / (precision + recall)
+    # locate the index of the largest f score
+    ix = np.argmax(fscore)
+    # plt.plot(recall, precision, lw=2)
+    # plt.plot(recall[ix], precision[ix], 'o', label="Optimalen prag verjetnosti")
+    # plt.xlabel("Priklic")
+    # plt.ylabel("Natančnost")
+    # plt.legend(loc="best")
+    # plt.title("Krivulja natančnost-priklic (Test set)")
+    # plt.show()
+    print('Test set precision-recall curve Optimal threshold probability={:.4f}, F-Score={:.4f}'.format(thresholds[ix], fscore[ix]))
+
+    y_combined_probability = loaded_model.predict_proba(X_combined)[:, 1]
+    # calculate precision-recall curve
+    precision, recall, thresholds = precision_recall_curve(y_comb, y_combined_probability)
+    # convert to f score
+    fscore = (2 * precision * recall) / (precision + recall)
+    # locate the index of the largest f score
+    ix = np.argmax(fscore)
+    # plt.plot(recall, precision, lw=2)
+    # plt.plot(recall[ix], precision[ix], 'o', label="Optimalen prag verjetnosti")
+    # plt.xlabel("Priklic")
+    # plt.ylabel("Natančnost")
+    # plt.legend(loc="best")
+    # plt.title("Krivulja natančnost-priklic (Združen inicialen in test set)")
+    # plt.show()
+    print('Combined initial and test set precision-recall curve Optimal threshold probability={:.4f}, F-Score={:.4f}'.format(thresholds[ix], fscore[ix]))
+    y_prediction = to_labels(y_probability, thresholds[ix])
+    threshold_probability = thresholds[ix]
+
+    upper_threshold_probability, lower_threshold_probability = plot_net_benefit(y_comb, y_combined_probability, plot=False)
+
+    print('Lower threshold probability: {:.4f}, Optimal threshold probability: {:.4f}, Upper threshold probability {:.4f}'.format(
+        lower_threshold_probability, threshold_probability, upper_threshold_probability))
+
+    # Model Accuracy, how often is the classifier correct
+    print("Test set results:")
+    print("Accuracy: {:.4f}, Precision [0, 1]: [{:.4f}, {:.4f}], Recall [0, 1]: [{:.4f}, {:.4f}], F1 [0, 1]: [{:.4f}, {:.4f}], RMSE: {:.4f}".format(
+        accuracy_score(y, y_prediction),
+        precision_score(y, y_prediction, average=None)[0],
+        precision_score(y, y_prediction, average=None)[1],
+        recall_score(y, y_prediction, average=None)[0],
+        recall_score(y, y_prediction, average=None)[1],
+        f1_score(y, y_prediction, average=None)[0],
+        f1_score(y, y_prediction, average=None)[1],
+        mean_squared_error(y, y_prediction, squared=False)))
+
+    all_feedback = []
+    high_confidence_predictions = 0
+    high_confidence_predictions_positive_user_feedback = 0
+    for pred, prob, true_val in zip(y_prediction, y_probability, y):
+        current_feedback = get_current_feedback(feedback_type, true_val, pred)
+        all_feedback.append(current_feedback)
+
+        if lower_threshold_probability <= prob <= upper_threshold_probability:
+            confidence = 'low'
+        else:
+            confidence = 'high'
+            high_confidence_predictions += 1
+
+        if current_feedback == 1 and confidence is 'high':
+            high_confidence_predictions_positive_user_feedback += 1
+
+    user_feedback_occurrences = Counter(all_feedback)
+    user_feedback_occurrences_percentage = {}
+    for i in range(0, 2):
+        if i not in user_feedback_occurrences:
+            user_feedback_occurrences[i] = 0
+        user_feedback_occurrences_percentage[i] = get_percentage(user_feedback_occurrences[i], len(all_feedback))
+
+    same_feedback = does_user_give_same_feedback(user_feedback_occurrences_percentage)
+    user_score = get_user_score(high_confidence_predictions_positive_user_feedback, high_confidence_predictions, same_feedback)
+    user_weight = user_score / 100
+    print('User score: {}'.format(user_score))
+
+    sample_weights = []
+    feedback = []
+    indices = []
+    index = 0
+    for pred, prob, true_val in zip(y_prediction, y_probability, y):
+        if lower_threshold_probability <= prob <= upper_threshold_probability:
+            confidence = 'low'
+        else:
+            confidence = 'high'
+
+        current_feedback = get_current_feedback(feedback_type, true_val, pred)
+
+        if scenario == 1:
+            if user_score >= 50:
+                feedback.append(current_feedback)
+                sample_weights.append(user_weight)
+            else:
+                indices.append(index)
+        elif scenario == 2:
+            feedback.append(current_feedback)
+            sample_weights.append(user_weight)
+        elif scenario == 3:
+            if confidence is 'low' and user_score >= 50:
+                feedback.append(current_feedback)
+                sample_weights.append(user_weight)
+            else:
+                indices.append(index)
+
+        index += 1
+
+    # Use only examples with feedback
+    y_prediction = np.delete(y_prediction, indices)
+    y = pd.Series.to_numpy(y)
+    y = np.delete(y, indices)
+    X = X.drop(indices)
+
+    if len(feedback) != 0:
+        y_prediction_correction = [p if fb == 1 else 1 - p for p, fb in zip(y_prediction, feedback)]
+
+        X_combined = pd.concat([X_initial, X])
+        X_combined.reset_index(drop=True, inplace=True)
+
+        sample_weights_initial = [1] * len(y_initial)
+        feedback_sample_weights = sample_weights_initial + sample_weights
+        # Predict using feedback
+        clf = RandomForestClassifier(n_estimators=100)
+        calibrated = CalibratedClassifierCV(clf, method='sigmoid', cv=5)
+        calibrated.fit(X_combined, np.append(y_initial, y_prediction_correction), sample_weight=feedback_sample_weights)
+        proba_calibrated_both = calibrated.predict_proba(X_validation)
+        proba_calibrated = proba_calibrated_both[:, 1]
+        predict_calibrated = to_labels(proba_calibrated, threshold_probability)
+
+        # Predict using truth values for comparison
+        clf_without_feedback = RandomForestClassifier(n_estimators=100)
+        calibrated_without_feedback = CalibratedClassifierCV(clf_without_feedback, method='sigmoid', cv=5)
+        calibrated_without_feedback.fit(X_combined, np.append(y_initial, y))
+        proba_calibrated_both_without_feedback = calibrated_without_feedback.predict_proba(X_validation)
+        proba_calibrated_without_feedback = proba_calibrated_both_without_feedback[:, 1]
+        predict_calibrated_without_feedback = to_labels(proba_calibrated_without_feedback, threshold_probability)
+
+        print('Initial data size: {}, Number of given feedback: {}, Validation size: {}'.format(len(y_initial), len(feedback), len(y_validation)))
+
+        print("Updated with feedback:")
+        print("Accuracy: {:.4f}, Precision [0, 1]: [{:.4f}, {:.4f}], Recall [0, 1]: [{:.4f}, {:.4f}], F1 [0, 1]: [{:.4f}, {:.4f}], RMSE: {:.4f}".format(
+                accuracy_score(y_validation, predict_calibrated),
+                precision_score(y_validation, predict_calibrated, average=None)[0],
+                precision_score(y_validation, predict_calibrated, average=None)[1],
+                recall_score(y_validation, predict_calibrated, average=None)[0],
+                recall_score(y_validation, predict_calibrated, average=None)[1],
+                f1_score(y_validation, predict_calibrated, average=None)[0],
+                f1_score(y_validation, predict_calibrated, average=None)[1],
+                mean_squared_error(y_validation, predict_calibrated, squared=False)))
+
+        print("Updated without feedback:")
+        print("Accuracy: {:.4f}, Precision [0, 1]: [{:.4f}, {:.4f}], Recall [0, 1]: [{:.4f}, {:.4f}], F1 [0, 1]: [{:.4f}, {:.4f}], RMSE: {:.4f}".format(
+            accuracy_score(y_validation, predict_calibrated_without_feedback),
+            precision_score(y_validation, predict_calibrated_without_feedback, average=None)[0],
+            precision_score(y_validation, predict_calibrated_without_feedback, average=None)[1],
+            recall_score(y_validation, predict_calibrated_without_feedback, average=None)[0],
+            recall_score(y_validation, predict_calibrated_without_feedback, average=None)[1],
+            f1_score(y_validation, predict_calibrated_without_feedback, average=None)[0],
+            f1_score(y_validation, predict_calibrated_without_feedback, average=None)[1],
+            mean_squared_error(y_validation, predict_calibrated_without_feedback, squared=False)))
+        print()
+    else:
+        print('No feedback received.')
+        print()
 
 
 if __name__ == '__main__':
-    upper_probability_threshold, probability_threshold, lower_probability_threshold = random_forest_classification(
-        dataset_name='cardiovascular-disease-dataset/cardio_train_cleaned_initial.csv',
-        model_name='generated-models/initial_model.sav')
-
-    update_model(upper_threshold_probability=upper_probability_threshold,
-                 lower_threshold_probability=lower_probability_threshold,
-                 threshold_probability=probability_threshold)
+    scenarios = [1, 2, 3]
+    # scenarios = [2]
+    feedback_types = ['negative', 'positive', 'random', 'good']
+    # feedback_types = ['good']
+    class_0_perc = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+    # class_0_perc = [50, 20]
+    class_1_perc = [90, 80, 70, 60, 50, 40, 30, 20, 10]
+    # class_1_perc = [50, 80]
+    for c_0, c_1 in zip(class_0_perc, class_1_perc):
+        print()
+        print()
+        print('Calculating for class imbalance - class 0: {}%, class 1: {}%'.format(c_0, c_1))
+        model_name = 'generated-models/initial_model_class0_' + str(c_0) + '_class1_' + str(c_1) + '.sav'
+        upper_threshold_probability, threshold_probability, lower_threshold_probability = random_forest_classification(
+            model_name=model_name, class_0_percentage=c_0, class_1_percentage=c_1)
+        for scenario in scenarios:
+            for feedback_type in feedback_types:
+                update_model(model=model_name, feedback_type=feedback_type, scenario=scenario, class_0_percentage=c_0, class_1_percentage=c_1)
